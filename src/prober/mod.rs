@@ -21,7 +21,7 @@ pub async fn run_prober(target: Target, client: Client, bucket: String, tx: broa
 
         // Create pinger and perform ping
         let mut pinger = ping_client.pinger(host_ip, PingIdentifier(0)).await;
-        let result = pinger.ping(PingSequence(0), &[0u8; 8]).await;
+        let result = pinger.ping(PingSequence(0), &[0u8; 64]).await;
 
         let (is_lost, rtt) = match result {
             Ok((_, duration)) => (false, duration.as_millis() as f64),
@@ -41,7 +41,7 @@ pub async fn run_prober(target: Target, client: Client, bucket: String, tx: broa
 
         let ws_msg = json!({ "target_id": target.id, "is_lost": is_lost, "rtt_ms": rtt }).to_string();
         if let Err(e) = tx.send(ws_msg) {
-            eprintln!("Failed to send WebSocket message: {}", e);
+            // eprintln!("Failed to send WebSocket message: {}", e);
         }
     }
 }

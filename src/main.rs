@@ -5,7 +5,7 @@ use axum::{
     routing::get,
     Router,
 };
-use axum_embed::ServeEmbed;
+use axum_embed::{ServeEmbed, FallbackBehavior};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -86,10 +86,17 @@ async fn main() {
         .route("/targets/:id", get(routes::targets::get_target).put(routes::targets::update_target).delete(routes::targets::delete_target))
         .route("/targets/:id/data", get(routes::targets::get_probe_data));
 
+    // Configure ServeEmbed for SPA routing - serve index.html for all unmatched routes
+    let spa_service = ServeEmbed::<Frontend>::with_parameters(
+        Some("index.html".to_string()), // fallback_file: serve index.html when route not found
+        FallbackBehavior::Ok,            // fallback_behavior: return 200 status (not 404) for SPA routes
+        Some("index.html".to_string()),  // index_file: serve index.html for directory requests
+    );
+
     let app = Router::new()
         .nest("/api", api_router)
         .route("/ws", get(ws_handler))
-        .fallback_service(ServeEmbed::<Frontend>::new())
+        .fallback_service(spa_service)
         .layer(cors)
         .with_state(state);
 
