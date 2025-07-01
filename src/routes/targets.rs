@@ -81,6 +81,7 @@ pub async fn get_target(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    println!("Received get target ID: {}", id);
     match target::Entity::find_by_id(id).one(state.db.as_ref()).await.unwrap() {
         Some(target) => Json(target).into_response(),
         None => (StatusCode::NOT_FOUND, "Target not found").into_response(),
