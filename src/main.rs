@@ -1,11 +1,12 @@
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
+    extract::{Request, State},
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
     Router,
 };
-use axum_embed::{ServeEmbed, FallbackBehavior};
+use rust_embed::RustEmbed;
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -86,17 +87,10 @@ async fn main() {
         .route("/targets/:id", get(routes::targets::get_target).put(routes::targets::update_target).delete(routes::targets::delete_target))
         .route("/targets/:id/data", get(routes::targets::get_probe_data));
 
-    // Configure ServeEmbed for SPA routing - serve index.html for all unmatched routes
-    let spa_service = ServeEmbed::<Frontend>::with_parameters(
-        Some("index.html".to_string()), // fallback_file: serve index.html when route not found
-        FallbackBehavior::Ok,            // fallback_behavior: return 200 status (not 404) for SPA routes
-        Some("index.html".to_string()),  // index_file: serve index.html for directory requests
-    );
-
     let app = Router::new()
         .nest("/api", api_router)
         .route("/ws", get(ws_handler))
-        .fallback_service(spa_service)
+        .fallback(spa_fallback)
         .layer(cors)
         .with_state(state);
 
@@ -125,4 +119,22 @@ async fn handle_socket(socket: WebSocket, tx: Arc<broadcast::Sender<String>>) {
             }
         }
     });
+}
+
+// Custom fallback handler for SPA routing
+async fn spa_fallback(request: Request) -> impl IntoResponse {
+    let path = request.uri().path();
+
+    // If the request is for an API route, return 404
+    if path.starts_with("/api/") {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
+
+    // For all other routes, serve the index.html file from embedded assets
+    if let Some(content) = Frontend::get("index.html") {
+        use axum::response::Html;
+        Html(content.data).into_response()
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, "SPA file not found").into_response()
+    }
 }
