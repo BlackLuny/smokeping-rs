@@ -1,0 +1,20 @@
+[package]
+name = "smokeping-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7", features = ["ws"] }
+axum-embed = "0.1.0"
+tokio = { version = "1", features = ["full"] }
+surge-ping = "0.8.2"
+sea-orm = { version = "0.12", features = [ "sqlx-sqlite", "runtime-tokio-rustls", "with-chrono" ] }
+influxdb2 = "0.5.2"
+influxdb2-derive = "0.1"
+influxdb2-structmap = "0.2.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust-embed = "8.7.2"
