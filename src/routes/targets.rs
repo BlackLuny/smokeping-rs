@@ -42,23 +42,30 @@ pub struct InfluxProbeDataPoint {
 impl FromMap for InfluxProbeDataPoint {
     fn from_genericmap(map: std::collections::BTreeMap<String, influxdb2_structmap::value::Value>) -> Self {
         use influxdb2_structmap::value::Value;
-        InfluxProbeDataPoint {
-            target_id: map.get("target_id").and_then(|v| match v {
+
+        // Helper function to safely extract string values
+        let get_string = |key: &str| -> String {
+            map.get(key).and_then(|v| match v {
                 Value::String(s) => Some(s.as_str()),
                 _ => None,
-            }).unwrap_or("").to_string(),
-            is_lost: map.get("is_lost").and_then(|v| match v {
-                Value::String(s) => Some(s.as_str()),
-                _ => None,
-            }).unwrap_or("false").to_string(),
-            rtt_ms: map.get("rtt_ms").and_then(|v| match v {
+            }).unwrap_or("").to_string()
+        };
+
+        // Helper function to safely extract numeric values
+        let get_numeric = |key: &str| -> f64 {
+            map.get(key).and_then(|v| match v {
                 Value::Double(d) => Some(d.into_inner()),
+                Value::Long(l) => Some(*l as f64),
+                Value::UnsignedLong(ul) => Some(*ul as f64),
                 _ => None,
-            }).unwrap_or(0.0),
-            _time: map.get("_time").and_then(|v| match v {
-                Value::String(s) => Some(s.as_str()),
-                _ => None,
-            }).unwrap_or("").to_string(),
+            }).unwrap_or(0.0)
+        };
+
+        InfluxProbeDataPoint {
+            target_id: get_string("target_id"),
+            is_lost: get_string("is_lost"),
+            rtt_ms: get_numeric("rtt_ms"),
+            _time: get_string("_time"),
         }
     }
 }
@@ -199,8 +206,9 @@ pub async fn get_probe_data(
         |> range(start: {}, stop: {})
         |> filter(fn: (r) => r._measurement == \"probe_data\")
         |> filter(fn: (r) => r.target_id == \"{}\")
-        |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")
-        |> keep(columns: [\"_time\", \"rtt_ms\", \"is_lost\"])",
+        |> filter(fn: (r) => r._field == \"rtt_ms\")
+        |> keep(columns: [\"_time\", \"_value\", \"target_id\", \"is_lost\"])
+        |> rename(columns: {{\"_value\": \"rtt_ms\"}})",
         state.influx_config.bucket,
         query.start_time,
         query.end_time,
