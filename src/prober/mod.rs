@@ -13,11 +13,25 @@ pub async fn run_prober(target: Target, client: Client, bucket: String, tx: broa
 
     // Create ping client
     let config = Config::default();
-    let ping_client = PingClient::new(&config).unwrap();
+    let ping_client = match PingClient::new(&config) {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("Failed to create ping client for target {}: {}", target.id, e);
+            return;
+        }
+    };
+
+    // Parse host IP once and handle error
+    let host_ip: IpAddr = match target.host.parse() {
+        Ok(ip) => ip,
+        Err(e) => {
+            eprintln!("Invalid IP address '{}' for target {}: {}", target.host, target.id, e);
+            return;
+        }
+    };
 
     loop {
         interval.tick().await;
-        let host_ip: IpAddr = target.host.parse().unwrap();
 
         // Create pinger and perform ping
         let mut pinger = ping_client.pinger(host_ip, PingIdentifier(0)).await;
@@ -28,19 +42,25 @@ pub async fn run_prober(target: Target, client: Client, bucket: String, tx: broa
             Err(_) => (true, 0.0),
         };
 
-        let point = DataPoint::builder("probe_data")
+        let point = match DataPoint::builder("probe_data")
             .tag("target_id", target.id.to_string())
             .tag("is_lost", is_lost.to_string())
             .field("rtt_ms", rtt)
             .build()
-            .unwrap();
+        {
+            Ok(point) => point,
+            Err(e) => {
+                eprintln!("Failed to build data point for target {}: {}", target.id, e);
+                continue;
+            }
+        };
 
         if let Err(e) = client.write(&bucket, futures::stream::iter(vec![point])).await {
             eprintln!("Failed to write to InfluxDB: {}", e);
         }
 
         let ws_msg = json!({ "target_id": target.id, "is_lost": is_lost, "rtt_ms": rtt }).to_string();
-        if let Err(e) = tx.send(ws_msg) {
+        if let Err(_) = tx.send(ws_msg) {
             // eprintln!("Failed to send WebSocket message: {}", e);
         }
     }

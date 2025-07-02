@@ -61,11 +61,18 @@ async fn main() {
         tx: tx.clone(),
     };
 
-    let targets = models::target::Entity::find()
+    let targets = match models::target::Entity::find()
         .filter(models::target::Column::IsActive.eq(true))
         .all(db.as_ref())
         .await
-        .unwrap();
+    {
+        Ok(targets) => targets,
+        Err(e) => {
+            eprintln!("Failed to load active targets: {:?}", e);
+            eprintln!("Continuing without starting probers...");
+            Vec::new()
+        }
+    };
 
     for target in targets {
         let prober_state = state.clone();

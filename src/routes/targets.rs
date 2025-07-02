@@ -72,8 +72,16 @@ pub struct ProbeDataPoint {
 
 // Handler to list all targets
 pub async fn list_targets(State(state): State<AppState>) -> impl IntoResponse {
-    let targets = target::Entity::find().all(state.db.as_ref()).await.unwrap();
-    Json(targets)
+    match target::Entity::find().all(state.db.as_ref()).await {
+        Ok(targets) => Json(targets).into_response(),
+        Err(e) => {
+            eprintln!("Database error listing targets: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Database error",
+                "message": "Unable to retrieve targets"
+            }))).into_response()
+        }
+    }
 }
 
 // Handler to get a single target by ID
@@ -82,9 +90,16 @@ pub async fn get_target(
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
     println!("Received get target ID: {}", id);
-    match target::Entity::find_by_id(id).one(state.db.as_ref()).await.unwrap() {
-        Some(target) => Json(target).into_response(),
-        None => (StatusCode::NOT_FOUND, "Target not found").into_response(),
+    match target::Entity::find_by_id(id).one(state.db.as_ref()).await {
+        Ok(Some(target)) => Json(target).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "Target not found").into_response(),
+        Err(e) => {
+            eprintln!("Database error getting target {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Database error",
+                "message": "Unable to retrieve target"
+            }))).into_response()
+        }
     }
 }
 
@@ -103,8 +118,16 @@ pub async fn create_target(
         is_active: Set(input.is_active),
         created_at: Set(chrono::Utc::now()),
     };
-    let result = new_target.insert(state.db.as_ref()).await.unwrap();
-    (StatusCode::CREATED, Json(result))
+    match new_target.insert(state.db.as_ref()).await {
+        Ok(result) => (StatusCode::CREATED, Json(result)).into_response(),
+        Err(e) => {
+            eprintln!("Database error creating target: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Database error",
+                "message": "Unable to create target"
+            }))).into_response()
+        }
+    }
 }
 
 // Handler to update an existing target
@@ -113,9 +136,16 @@ pub async fn update_target(
     Path(id): Path<i32>,
     Json(input): Json<TargetInput>,
 ) -> impl IntoResponse {
-    let mut target: target::ActiveModel = match target::Entity::find_by_id(id).one(state.db.as_ref()).await.unwrap() {
-        Some(target) => target.into(),
-        None => return (StatusCode::NOT_FOUND, "Target not found").into_response(),
+    let mut target: target::ActiveModel = match target::Entity::find_by_id(id).one(state.db.as_ref()).await {
+        Ok(Some(target)) => target.into(),
+        Ok(None) => return (StatusCode::NOT_FOUND, "Target not found").into_response(),
+        Err(e) => {
+            eprintln!("Database error finding target {}: {}", id, e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Database error",
+                "message": "Unable to find target for update"
+            }))).into_response();
+        }
     };
 
     target.name = Set(input.name.to_owned());
@@ -124,8 +154,16 @@ pub async fn update_target(
     target.probe_interval_secs = Set(input.probe_interval_secs);
     target.is_active = Set(input.is_active);
 
-    let result = target.update(state.db.as_ref()).await.unwrap();
-    Json(result).into_response()
+    match target.update(state.db.as_ref()).await {
+        Ok(result) => Json(result).into_response(),
+        Err(e) => {
+            eprintln!("Database error updating target {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Database error",
+                "message": "Unable to update target"
+            }))).into_response()
+        }
+    }
 }
 
 // Handler to delete a target
@@ -133,11 +171,21 @@ pub async fn delete_target(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
-    let result = target::Entity::delete_by_id(id).exec(state.db.as_ref()).await.unwrap();
-    if result.rows_affected == 1 {
-        (StatusCode::NO_CONTENT, "").into_response()
-    } else {
-        (StatusCode::NOT_FOUND, "Target not found").into_response()
+    match target::Entity::delete_by_id(id).exec(state.db.as_ref()).await {
+        Ok(result) => {
+            if result.rows_affected == 1 {
+                (StatusCode::NO_CONTENT, "").into_response()
+            } else {
+                (StatusCode::NOT_FOUND, "Target not found").into_response()
+            }
+        }
+        Err(e) => {
+            eprintln!("Database error deleting target {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "Database error",
+                "message": "Unable to delete target"
+            }))).into_response()
+        }
     }
 }
 
@@ -159,7 +207,18 @@ pub async fn get_probe_data(
         id
     );
 
-    let result: Vec<InfluxProbeDataPoint> = state.influx_client.query(Some(InfluxQuery::new(flux_query))).await.unwrap();
+    // Handle InfluxDB query errors gracefully
+    let result: Vec<InfluxProbeDataPoint> = match state.influx_client.query(Some(InfluxQuery::new(flux_query))).await {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("InfluxDB query failed: {}", e);
+            // Return empty data set instead of panicking
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+                "error": "InfluxDB service unavailable",
+                "message": "Unable to retrieve probe data at this time"
+            }))).into_response();
+        }
+    };
 
     let data_points: Vec<ProbeDataPoint> = result.into_iter().map(|p| {
         ProbeDataPoint {
@@ -169,5 +228,5 @@ pub async fn get_probe_data(
         }
     }).collect();
 
-    Json(data_points)
+    Json(data_points).into_response()
 }
