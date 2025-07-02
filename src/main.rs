@@ -6,7 +6,6 @@ use axum::{
     routing::get,
     Router,
 };
-use rust_embed::RustEmbed;
 use futures::stream::StreamExt;
 use futures::SinkExt;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -137,7 +136,21 @@ async fn spa_fallback(request: Request) -> impl IntoResponse {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
 
-    // For all other routes, serve the index.html file from embedded assets
+    // Remove leading slash for embedded asset lookup
+    let asset_path = path.strip_prefix('/').unwrap_or(path);
+
+    // Try to serve static assets first
+    if let Some(content) = Frontend::get(asset_path) {
+        let mime_type = mime_guess::from_path(asset_path).first_or_octet_stream();
+        
+        return (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, mime_type.as_ref())],
+            content.data,
+        ).into_response();
+    }
+
+    // For routes that don't match static assets, serve the index.html file (SPA routing)
     if let Some(content) = Frontend::get("index.html") {
         use axum::response::Html;
         Html(content.data).into_response()

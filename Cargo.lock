@@ -2508,6 +2508,7 @@ dependencies = [
  "influxdb2",
  "influxdb2-derive",
  "influxdb2-structmap",
+ "mime_guess",
  "rust-embed",
  "sea-orm",
  "serde",
